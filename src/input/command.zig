@@ -425,6 +425,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Open a new workspace.",
         }},
 
+        .rename_workspace => comptime &.{.{
+            .action = .rename_workspace,
+            .title = "Rename Workspace",
+            .description = "Prompt for a new title for the current workspace.",
+        }},
+
         .move_tab => comptime &.{
             .{
                 .action = .{ .move_tab = -1 },

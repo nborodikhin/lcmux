@@ -88,7 +88,7 @@ template $GhosttyWindow: Adw.ApplicationWindow {
             show-sidebar: true;
 
             sidebar: Gtk.ScrolledWindow {
-              width-request: 180;
+              width-request: 60;
               hscrollbar-policy: never;
 
               Gtk.ListBox workspace_list {
@@ -221,6 +221,18 @@ menu main_menu {
     item {
       label: _("Close Window");
       action: "win.close";
+    }
+  }
+
+  section {
+    item {
+      label: _("Rename Workspace");
+      action: "win.rename-workspace";
+    }
+
+    item {
+      label: _("New Workspace");
+      action: "win.new-workspace";
     }
   }
 

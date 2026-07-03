@@ -23,6 +23,7 @@ const Common = @import("../class.zig").Common;
 const Config = @import("config.zig").Config;
 const Application = @import("application.zig").Application;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
+const TitleDialog = @import("title_dialog.zig").TitleDialog;
 const SplitTree = @import("split_tree.zig").SplitTree;
 const Surface = @import("surface.zig").Surface;
 const Tab = @import("tab.zig").Tab;
@@ -266,6 +267,9 @@ pub const Window = extern struct {
         /// The active workspace index into `workspaces`.
         active_workspace_index: usize = 0,
 
+        /// Monotonic counter for generated workspace names.
+        workspace_name_counter: usize = 1,
+
         // Template bindings
         tab_overview: *adw.TabOverview,
         tab_bar: *adw.TabBar,
@@ -370,10 +374,12 @@ pub const Window = extern struct {
             .init("close", actionClose, null),
             .init("close-tab", actionCloseTab, s_variant_type),
             .init("new-tab", actionNewTab, null),
+            .init("new-workspace", actionNewWorkspace, null),
             .init("new-window", actionNewWindow, null),
             .init("prompt-surface-title", actionPromptSurfaceTitle, null),
             .init("prompt-tab-title", actionPromptTabTitle, null),
             .init("prompt-context-tab-title", actionPromptContextTabTitle, null),
+            .init("rename-workspace", actionRenameWorkspace, null),
             .init("ring-bell", actionRingBell, null),
             .init("split-right", actionSplitRight, null),
             .init("split-left", actionSplitLeft, null),
@@ -495,9 +501,26 @@ pub const Window = extern struct {
         self.setActiveWorkspace(workspace);
     }
 
+    pub fn promptWorkspaceTitle(self: *Self) void {
+        const workspace = self.activeWorkspace() orelse return;
+        const title = workspace.getTitle();
+
+        const dialog = TitleDialog.new(.workspace, title);
+        _ = TitleDialog.signals.set.connect(
+            dialog,
+            *Self,
+            titleDialogWorkspaceSet,
+            self,
+            .{},
+        );
+        dialog.present(self.as(gtk.Widget));
+    }
+
     fn newWorkspaceEmpty(self: *Self) *Workspace {
         const priv = self.private();
-        const workspace = Workspace.new(priv.config);
+        var title_buf: [64:0]u8 = undefined;
+        const title = self.newWorkspaceName(&title_buf);
+        const workspace = Workspace.new(priv.config, title);
         errdefer workspace.unref();
 
         self.connectWorkspace(workspace);
@@ -507,6 +530,20 @@ pub const Window = extern struct {
         };
 
         return workspace;
+    }
+
+    fn newWorkspaceName(self: *Self, buf: *[64:0]u8) [:0]const u8 {
+        const priv = self.private();
+
+        while (true) {
+            const title = std.fmt.bufPrintZ(
+                buf,
+                "Workspace {d}",
+                .{priv.workspace_name_counter},
+            ) catch "Workspace";
+            priv.workspace_name_counter += 1;
+            if (!self.workspaceTitleExists(title, null)) return title;
+        }
     }
 
     pub fn selectWorkspace(self: *Self, n: SelectWorkspace) bool {
@@ -777,6 +814,13 @@ pub const Window = extern struct {
             self,
             .{},
         );
+        _ = Workspace.signals.title_changed.connect(
+            workspace,
+            *Self,
+            workspaceTitleChanged,
+            self,
+            .{},
+        );
         _ = adw.TabView.signals.close_page.connect(
             tab_view,
             *Self,
@@ -966,12 +1010,9 @@ pub const Window = extern struct {
             priv.workspace_list.remove(child);
         }
 
-        for (priv.workspaces.items, 0..) |_, i| {
-            var title_buf: [64:0]u8 = undefined;
-            const title = std.fmt.bufPrintZ(&title_buf, "Workspace {d}", .{i + 1}) catch "Workspace";
-
+        for (priv.workspaces.items, 0..) |workspace, i| {
             const row: *gtk.ListBoxRow = .new();
-            const label: *gtk.Label = .new(title.ptr);
+            const label: *gtk.Label = .new(workspace.getTitle().ptr);
             label.setXalign(0);
             label.as(gtk.Widget).setMarginTop(8);
             label.as(gtk.Widget).setMarginBottom(8);
@@ -981,6 +1022,19 @@ pub const Window = extern struct {
             if (i == priv.active_workspace_index) row.as(gtk.Widget).addCssClass("accent");
             priv.workspace_list.append(row.as(gtk.Widget));
         }
+    }
+
+    fn workspaceTitleExists(
+        self: *Self,
+        title: []const u8,
+        except: ?*Workspace,
+    ) bool {
+        for (self.private().workspaces.items) |workspace| {
+            if (workspace == except) continue;
+            if (std.mem.eql(u8, workspace.getTitle(), title)) return true;
+        }
+
+        return false;
     }
 
     fn syncSelectedTabBinding(self: *Self, tab_view: *adw.TabView) void {
@@ -1764,6 +1818,30 @@ pub const Window = extern struct {
         const next_index = @min(remove_index, priv.workspaces.items.len - 1);
         self.setActiveWorkspaceIndex(next_index);
     }
+
+    fn workspaceTitleChanged(
+        _: *Workspace,
+        self: *Self,
+    ) callconv(.c) void {
+        self.syncWorkspaceSidebar();
+    }
+
+    fn titleDialogWorkspaceSet(
+        _: *TitleDialog,
+        title: [*:0]const u8,
+        self: *Self,
+    ) callconv(.c) void {
+        const workspace = self.activeWorkspace() orelse return;
+        const title_slice = std.mem.span(title);
+        const target_title = if (title_slice.len == 0) workspace.getDefaultTitle() else title_slice;
+        if (self.workspaceTitleExists(target_title, workspace)) {
+            self.addToast(i18n._("Workspace name already exists"));
+            return;
+        }
+
+        workspace.setTitleOverride(if (title_slice.len == 0) null else title_slice);
+    }
+
     fn setupTabMenu(
         _: *adw.TabView,
         page: ?*adw.TabPage,
@@ -2015,6 +2093,14 @@ pub const Window = extern struct {
         self.performBindingAction(.new_tab);
     }
 
+    fn actionNewWorkspace(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Window,
+    ) callconv(.c) void {
+        self.newWorkspace();
+    }
+
     fn actionPromptContextTabTitle(
         _: *gio.SimpleAction,
         _: ?*glib.Variant,
@@ -2041,6 +2127,14 @@ pub const Window = extern struct {
         self: *Window,
     ) callconv(.c) void {
         self.performBindingAction(.prompt_tab_title);
+    }
+
+    fn actionRenameWorkspace(
+        _: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        self: *Window,
+    ) callconv(.c) void {
+        self.promptWorkspaceTitle();
     }
 
     fn actionSplitRight(

@@ -6624,6 +6624,11 @@ pub const Keybinds = struct {
             );
             try self.set.put(
                 alloc,
+                .{ .key = .{ .unicode = 'r' }, .mods = .{ .ctrl = true, .shift = true } },
+                .{ .rename_workspace = {} },
+            );
+            try self.set.put(
+                alloc,
                 .{ .key = .{ .unicode = 'w' }, .mods = .{ .ctrl = true, .shift = true } },
                 .{ .close_surface = {} },
             );

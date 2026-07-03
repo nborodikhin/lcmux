@@ -5274,6 +5274,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        .rename_workspace => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .rename_workspace,
+            {},
+        ),
+
         .close_tab => |v| return try self.rt_app.performAction(
             .{ .surface = self },
             .close_tab,

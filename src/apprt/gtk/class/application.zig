@@ -733,6 +733,8 @@ pub const Application = extern struct {
 
             .progress_report => return Action.progressReport(target, value),
 
+            .rename_workspace => return Action.renameWorkspace(target),
+
             .prompt_title => return Action.promptTitle(target, value),
 
             .quit => self.quit(),
@@ -1154,6 +1156,8 @@ pub const Application = extern struct {
         self.syncActionAccelerator("win.close", .{ .close_window = {} });
         self.syncActionAccelerator("win.new-window", .{ .new_window = {} });
         self.syncActionAccelerator("win.new-tab", .{ .new_tab = {} });
+        self.syncActionAccelerator("win.new-workspace", .{ .new_workspace = {} });
+        self.syncActionAccelerator("win.rename-workspace", .{ .rename_workspace = {} });
         self.syncActionAccelerator("win.close-tab::this", .{ .close_tab = .this });
         self.syncActionAccelerator("tab.close::this", .{ .close_tab = .this });
         self.syncActionAccelerator("win.split-right", .{ .new_split = .right });
@@ -2297,6 +2301,28 @@ const Action = struct {
                     return false;
                 };
                 window.newWorkspace();
+                return true;
+            },
+        }
+    }
+
+    pub fn renameWorkspace(target: apprt.Target) bool {
+        switch (target) {
+            .app => {
+                log.warn("rename workspace to app is unexpected", .{});
+                return false;
+            },
+
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const window = ext.getAncestor(
+                    Window,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a window, ignoring rename_workspace", .{});
+                    return false;
+                };
+                window.promptWorkspaceTitle();
                 return true;
             },
         }
