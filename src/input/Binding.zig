@@ -562,6 +562,9 @@ pub const Action = union(enum) {
     /// Open a new workspace.
     new_workspace,
 
+    /// Rename the active workspace via a pop-up prompt.
+    rename_workspace,
+
     /// Go to the previous tab.
     previous_tab,
 
@@ -1435,6 +1438,7 @@ pub const Action = union(enum) {
             // a surface so inheritance can be done correctly.
             .new_tab,
             .new_workspace,
+            .rename_workspace,
             .previous_tab,
             .previous_workspace,
             .next_tab,
@@ -3349,6 +3353,11 @@ test "parse: action no parameters" {
         try parseSingle("a=ignore"),
     );
     try testing.expectError(Error.InvalidFormat, parseSingle("a=ignore:A"));
+
+    {
+        const binding = try parseSingle("a=rename_workspace");
+        try testing.expect(binding.action == .rename_workspace);
+    }
 }
 
 test "parse: action with string" {

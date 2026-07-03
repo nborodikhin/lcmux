@@ -1,6 +1,7 @@
 const std = @import("std");
 const assert = @import("../../../quirks.zig").inlineAssert;
 const adw = @import("adw");
+const glib = @import("glib");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 
@@ -39,6 +40,18 @@ pub const Workspace = extern struct {
                 void,
             );
         };
+
+        /// Emitted when the workspace title override changes.
+        pub const title_changed = struct {
+            pub const name = "title-changed";
+            pub const connect = impl.connect;
+            const impl = gobject.ext.defineSignal(
+                name,
+                Self,
+                &.{},
+                void,
+            );
+        };
     };
 
     const Private = struct {
@@ -48,13 +61,20 @@ pub const Workspace = extern struct {
         /// The tab view owned by this workspace.
         tab_view: *adw.TabView,
 
+        /// The generated title assigned when this workspace is created.
+        default_title: ?[:0]const u8 = null,
+
+        /// The manually overridden workspace title.
+        title_override: ?[:0]const u8 = null,
+
         pub var offset: c_int = 0;
     };
 
-    pub fn new(config: ?*Config) *Self {
+    pub fn new(config: ?*Config, title: [:0]const u8) *Self {
         const self = gobject.ext.newInstance(Self, .{});
         const priv = self.private();
         priv.config = if (config) |v| v.ref() else null;
+        priv.default_title = glib.ext.dupeZ(u8, title);
         return self.refSink();
     }
 
@@ -275,6 +295,36 @@ pub const Workspace = extern struct {
         return self.private().tab_view;
     }
 
+    /// Get the generated title assigned when this workspace was created.
+    pub fn getDefaultTitle(self: *Self) [:0]const u8 {
+        return self.private().default_title orelse "Workspace";
+    }
+
+    /// Get the current workspace title.
+    pub fn getTitle(self: *Self) [:0]const u8 {
+        return self.getTitleOverride() orelse self.getDefaultTitle();
+    }
+
+    /// Get the manually overridden workspace title, if one is set.
+    pub fn getTitleOverride(self: *Self) ?[:0]const u8 {
+        return self.private().title_override;
+    }
+
+    /// Set the manually overridden workspace title.
+    pub fn setTitleOverride(self: *Self, title: ?[:0]const u8) void {
+        const priv = self.private();
+        if (priv.title_override) |v| glib.free(@ptrCast(@constCast(v)));
+        priv.title_override = null;
+
+        if (title) |v| {
+            if (v.len > 0) {
+                priv.title_override = glib.ext.dupeZ(u8, v);
+            }
+        }
+
+        signals.title_changed.impl.emit(self, null, .{}, null);
+    }
+
     /// Get the currently selected tab as a Tab object.
     pub fn getSelectedTab(self: *Self) ?*Tab {
         const page = self.private().tab_view.getSelectedPage() orelse return null;
@@ -331,6 +381,16 @@ pub const Workspace = extern struct {
             priv.config = null;
         }
 
+        if (priv.default_title) |v| {
+            glib.free(@ptrCast(@constCast(v)));
+            priv.default_title = null;
+        }
+
+        if (priv.title_override) |v| {
+            glib.free(@ptrCast(@constCast(v)));
+            priv.title_override = null;
+        }
+
         gobject.Object.virtual_methods.dispose.call(
             Class.parent,
             self.as(Parent),
@@ -351,6 +411,7 @@ pub const Workspace = extern struct {
 
         fn init(class: *Class) callconv(.c) void {
             signals.empty.impl.register(.{});
+            signals.title_changed.impl.register(.{});
 
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);
         }
