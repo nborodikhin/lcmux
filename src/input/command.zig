@@ -444,6 +444,19 @@ fn actionCommands(action: Action.Key) []const Command {
             },
         },
 
+        .move_workspace => comptime &.{
+            .{
+                .action = .{ .move_workspace = -1 },
+                .title = "Move Workspace Up",
+                .description = "Move the current workspace up.",
+            },
+            .{
+                .action = .{ .move_workspace = 1 },
+                .title = "Move Workspace Down",
+                .description = "Move the current workspace down.",
+            },
+        },
+
         .toggle_tab_overview => comptime &.{.{
             .action = .toggle_tab_overview,
             .title = "Toggle Tab Overview",

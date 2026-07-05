@@ -138,6 +138,13 @@ pub const Action = union(Key) {
     /// cyclically within the tab range.
     move_tab: MoveTab,
 
+    /// Moves the active workspace by a relative offset.
+    ///
+    /// Adjusts the workspace position based on `offset` (e.g., -1 for up, +1
+    /// for down). If the new position is out of bounds, it wraps around
+    /// cyclically within the workspace range.
+    move_workspace: MoveWorkspace,
+
     /// Jump to a specific tab. Must handle the scenario that the tab
     /// value is invalid.
     goto_tab: GotoTab,
@@ -379,6 +386,7 @@ pub const Action = union(Key) {
         toggle_visibility,
         toggle_background_opacity,
         move_tab,
+        move_workspace,
         goto_tab,
         goto_workspace,
         goto_split,
@@ -568,6 +576,10 @@ pub const ResizeSplit = extern struct {
 };
 
 pub const MoveTab = extern struct {
+    amount: isize,
+};
+
+pub const MoveWorkspace = extern struct {
     amount: isize,
 };
 

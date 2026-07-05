@@ -567,6 +567,36 @@ pub const Window = extern struct {
         return true;
     }
 
+    /// Move the active workspace by the given amount. Returns if this affected
+    /// any workspace positioning.
+    pub fn moveWorkspace(self: *Self, amount: isize) bool {
+        const priv = self.private();
+        const total = priv.workspaces.items.len;
+        if (total <= 1) return false;
+
+        const current = priv.active_workspace_index;
+        const desired = desired: {
+            const total_i: isize = @intCast(total);
+            const current_i: isize = @intCast(current);
+            break :desired @as(usize, @intCast(@mod(current_i + amount, total_i)));
+        };
+
+        if (desired == current) return false;
+
+        const workspace = priv.workspaces.orderedRemove(current);
+        priv.workspaces.insert(
+            Application.default().allocator(),
+            desired,
+            workspace,
+        ) catch |err| {
+            log.err("failed to move workspace err={}", .{err});
+            @panic("failed to move workspace");
+        };
+
+        self.setActiveWorkspaceIndex(desired);
+        return true;
+    }
+
     pub fn toggleTabOverview(self: *Self) void {
         const priv = self.private();
         const tab_overview = priv.tab_overview;

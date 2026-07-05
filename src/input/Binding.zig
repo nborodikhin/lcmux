@@ -608,6 +608,19 @@ pub const Action = union(enum) {
     /// the last tab.
     move_tab: isize,
 
+    /// Moves the active workspace by a relative offset.
+    ///
+    /// Positive values move the workspace forwards, and negative values move it
+    /// backwards. If the new position is out of bounds, it is wrapped around
+    /// cyclically within the workspace list.
+    ///
+    /// For example, `move_workspace:1` moves the active workspace one position
+    /// forwards, and if it was already the last workspace in the list, it wraps
+    /// around and becomes the first workspace. Likewise, `move_workspace:-1`
+    /// moves the active workspace one position backwards, and if it was the
+    /// first workspace, then it will become the last workspace.
+    move_workspace: isize,
+
     /// Toggle the tab overview.
     ///
     /// This is only supported on Linux and when the system's libadwaita
@@ -1448,6 +1461,7 @@ pub const Action = union(enum) {
             .goto_tab,
             .goto_workspace,
             .move_tab,
+            .move_workspace,
             .toggle_tab_overview,
             .toggle_workspace_sidebar,
             .new_split,
@@ -3422,6 +3436,16 @@ test "parse: action with int" {
         const binding = try parseSingle("a=jump_to_prompt:10");
         try testing.expect(binding.action == .jump_to_prompt);
         try testing.expectEqual(@as(i16, 10), binding.action.jump_to_prompt);
+    }
+    {
+        const binding = try parseSingle("a=move_workspace:-1");
+        try testing.expect(binding.action == .move_workspace);
+        try testing.expectEqual(@as(isize, -1), binding.action.move_workspace);
+    }
+    {
+        const binding = try parseSingle("a=move_workspace:1");
+        try testing.expect(binding.action == .move_workspace);
+        try testing.expectEqual(@as(isize, 1), binding.action.move_workspace);
     }
 }
 
