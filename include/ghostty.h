@@ -609,6 +609,11 @@ typedef struct {
   ssize_t amount;
 } ghostty_action_move_tab_s;
 
+// apprt.action.MoveWorkspace
+typedef struct {
+  ssize_t amount;
+} ghostty_action_move_workspace_s;
+
 // apprt.action.GotoTab
 typedef enum {
   GHOSTTY_GOTO_TAB_PREVIOUS = -1,
@@ -907,6 +912,7 @@ typedef enum {
   GHOSTTY_ACTION_TOGGLE_VISIBILITY,
   GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY,
   GHOSTTY_ACTION_MOVE_TAB,
+  GHOSTTY_ACTION_MOVE_WORKSPACE,
   GHOSTTY_ACTION_GOTO_TAB,
   GHOSTTY_ACTION_GOTO_WORKSPACE,
   GHOSTTY_ACTION_GOTO_SPLIT,
@@ -966,6 +972,7 @@ typedef union {
   ghostty_action_split_direction_e new_split;
   ghostty_action_fullscreen_e toggle_fullscreen;
   ghostty_action_move_tab_s move_tab;
+  ghostty_action_move_workspace_s move_workspace;
   ghostty_action_goto_tab_e goto_tab;
   ghostty_action_goto_workspace_e goto_workspace;
   ghostty_action_goto_split_e goto_split;

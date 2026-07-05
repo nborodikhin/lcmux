@@ -5334,6 +5334,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .{ .amount = position },
         ),
 
+        .move_workspace => |position| return try self.rt_app.performAction(
+            .{ .surface = self },
+            .move_workspace,
+            .{ .amount = position },
+        ),
+
         .new_split => |direction| return try self.rt_app.performAction(
             .{ .surface = self },
             .new_split,

@@ -708,6 +708,8 @@ pub const Application = extern struct {
 
             .move_tab => return Action.moveTab(target, value),
 
+            .move_workspace => return Action.moveWorkspace(target, value),
+
             .new_split => return Action.newSplit(target, value),
 
             .new_tab => return Action.newTab(target),
@@ -2233,6 +2235,27 @@ const Action = struct {
                     surface,
                     @intCast(value.amount),
                 );
+            },
+        }
+    }
+
+    pub fn moveWorkspace(
+        target: apprt.Target,
+        value: apprt.action.MoveWorkspace,
+    ) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |core| {
+                const surface = core.rt_surface.surface;
+                const window = ext.getAncestor(
+                    Window,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a window, ignoring move_workspace", .{});
+                    return false;
+                };
+
+                return window.moveWorkspace(@intCast(value.amount));
             },
         }
     }
