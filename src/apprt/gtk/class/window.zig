@@ -34,6 +34,14 @@ const WeakRef = @import("../weak_ref.zig").WeakRef;
 
 const log = std.log.scoped(.gtk_ghostty_window);
 
+fn formatWorkspaceName(buf: *[64:0]u8, counter: usize) [:0]const u8 {
+    return std.fmt.bufPrintZ(
+        buf,
+        "Workspace {d}",
+        .{counter},
+    ) catch "Workspace";
+}
+
 pub const Window = extern struct {
     const Self = @This();
     parent_instance: Parent,
@@ -267,6 +275,12 @@ pub const Window = extern struct {
         /// The active workspace index into `workspaces`.
         active_workspace_index: usize = 0,
 
+        /// Pending active workspace index to apply on the next idle tick.
+        pending_active_workspace_index: ?usize = null,
+
+        /// Idle source for applying pending active workspace changes.
+        active_workspace_switch_source: ?c_uint = null,
+
         /// Monotonic counter for generated workspace names.
         workspace_name_counter: usize = 1,
 
@@ -328,6 +342,11 @@ pub const Window = extern struct {
         if (comptime build_config.is_debug) {
             self.as(gtk.Widget).addCssClass("devel");
         }
+
+        // Workspaces own their tab bars so we don't dynamically rebind a single
+        // AdwTabBar across multiple AdwTabViews.
+        priv.tab_bar.setView(null);
+        priv.tab_bar.as(gtk.Widget).setVisible(0);
 
         // Setup our tab binding group. This ensures certain properties
         // are only synced from the currently active tab.
@@ -528,6 +547,8 @@ pub const Window = extern struct {
             log.err("failed to append workspace err={}", .{err});
             @panic("failed to append workspace");
         };
+        if (priv.config) |config| self.syncWorkspaceTabBars(config.get());
+        self.syncWorkspaceSidebar();
 
         return workspace;
     }
@@ -536,11 +557,7 @@ pub const Window = extern struct {
         const priv = self.private();
 
         while (true) {
-            const title = std.fmt.bufPrintZ(
-                buf,
-                "Workspace {d}",
-                .{priv.workspace_name_counter},
-            ) catch "Workspace";
+            const title = formatWorkspaceName(buf, priv.workspace_name_counter);
             priv.workspace_name_counter += 1;
             if (!self.workspaceTitleExists(title, null)) return title;
         }
@@ -551,7 +568,7 @@ pub const Window = extern struct {
         const total = priv.workspaces.items.len;
         if (total == 0) return false;
 
-        const current = priv.active_workspace_index;
+        const current = priv.pending_active_workspace_index orelse priv.active_workspace_index;
         const goto: usize = switch (n) {
             .previous => if (current > 0) current - 1 else total - 1,
             .next => if (current < total - 1) current + 1 else 0,
@@ -563,8 +580,18 @@ pub const Window = extern struct {
         };
 
         if (goto == current) return false;
-        self.setActiveWorkspace(priv.workspaces.items[goto]);
+        self.scheduleActiveWorkspaceIndex(goto);
         return true;
+    }
+
+    fn scheduleActiveWorkspaceIndex(self: *Self, index: usize) void {
+        const priv = self.private();
+        assert(index < priv.workspaces.items.len);
+
+        priv.pending_active_workspace_index = index;
+        if (priv.active_workspace_switch_source == null) {
+            priv.active_workspace_switch_source = glib.idleAdd(activeWorkspaceSwitch, self);
+        }
     }
 
     /// Move the active workspace by the given amount. Returns if this affected
@@ -593,6 +620,7 @@ pub const Window = extern struct {
             @panic("failed to move workspace");
         };
 
+        self.syncWorkspaceSidebar();
         self.setActiveWorkspaceIndex(desired);
         return true;
     }
@@ -694,12 +722,9 @@ pub const Window = extern struct {
                 config.@"window-theme" == .ghostty,
         );
 
-        // Move the tab bar to the proper location.
-        priv.toolbar.remove(priv.tab_bar.as(gtk.Widget));
-        switch (config.@"gtk-tabs-location") {
-            .top => priv.toolbar.addTopBar(priv.tab_bar.as(gtk.Widget)),
-            .bottom => priv.toolbar.addBottomBar(priv.tab_bar.as(gtk.Widget)),
-        }
+        priv.tab_bar.setView(null);
+        priv.tab_bar.as(gtk.Widget).setVisible(0);
+        self.syncWorkspaceTabBars(config);
 
         // Do our window-protocol specific appearance sync.
         priv.winproto.syncAppearance() catch |err| {
@@ -726,6 +751,20 @@ pub const Window = extern struct {
             action_map.lookupAction("copy") orelse return,
         ) orelse return;
         action.setEnabled(@intFromBool(has_selection));
+    }
+
+    fn syncWorkspaceTabBars(self: *Self, config: *const configpkg.Config) void {
+        const visible = self.getTabsVisible();
+        const autohide = self.getTabsAutohide();
+        const wide = self.getTabsWide();
+        for (self.private().workspaces.items) |workspace| {
+            workspace.syncTabBar(
+                visible,
+                autohide,
+                wide,
+                config.@"gtk-tabs-location",
+            );
+        }
     }
 
     fn toggleCssClass(self: *Self, class: [:0]const u8, value: bool) void {
@@ -1018,12 +1057,18 @@ pub const Window = extern struct {
         const priv = self.private();
         assert(index < priv.workspaces.items.len);
 
+        priv.pending_active_workspace_index = null;
+        if (priv.active_workspace_switch_source) |v| {
+            if (glib.Source.remove(v) == 0) {
+                log.warn("unable to remove active workspace switch source", .{});
+            }
+            priv.active_workspace_switch_source = null;
+        }
+
         priv.active_workspace_index = index;
         const workspace = priv.workspaces.items[index];
         const tab_view = workspace.getTabView();
 
-        priv.tab_overview.setView(tab_view);
-        priv.tab_bar.setView(tab_view);
         priv.workspace_content.setChild(workspace.as(gtk.Widget));
         self.syncSelectedTabBinding(tab_view);
 
@@ -1031,7 +1076,25 @@ pub const Window = extern struct {
             if (tab.getActiveSurface()) |surface| surface.grabFocus();
         }
 
-        self.syncWorkspaceSidebar();
+        self.syncWorkspaceSidebarActive();
+    }
+
+    fn activeWorkspaceSwitch(ud: ?*anyopaque) callconv(.c) c_int {
+        const self: *Self = @ptrCast(@alignCast(ud orelse return 0));
+        const priv = self.private();
+        const index = priv.pending_active_workspace_index orelse {
+            priv.active_workspace_switch_source = null;
+            return 0;
+        };
+
+        priv.pending_active_workspace_index = null;
+        priv.active_workspace_switch_source = null;
+
+        if (index >= priv.workspaces.items.len) return 0;
+        if (index == priv.active_workspace_index) return 0;
+        self.setActiveWorkspaceIndex(index);
+
+        return 0;
     }
 
     fn syncWorkspaceSidebar(self: *Self) void {
@@ -1042,16 +1105,56 @@ pub const Window = extern struct {
 
         for (priv.workspaces.items, 0..) |workspace, i| {
             const row: *gtk.ListBoxRow = .new();
+            const box = gtk.Box.new(.horizontal, 12);
+            box.as(gtk.Widget).setMarginTop(8);
+            box.as(gtk.Widget).setMarginBottom(8);
+            box.as(gtk.Widget).setMarginStart(12);
+            box.as(gtk.Widget).setMarginEnd(12);
+
             const label: *gtk.Label = .new(workspace.getTitle().ptr);
             label.setXalign(0);
-            label.as(gtk.Widget).setMarginTop(8);
-            label.as(gtk.Widget).setMarginBottom(8);
-            label.as(gtk.Widget).setMarginStart(12);
-            label.as(gtk.Widget).setMarginEnd(12);
-            row.setChild(label.as(gtk.Widget));
+            label.as(gtk.Widget).setHexpand(1);
+            box.append(label.as(gtk.Widget));
+
+            var shortcut_buf: [2:0]u8 = undefined;
+            if (workspaceSidebarShortcut(&shortcut_buf, i, priv.workspaces.items.len)) |shortcut| {
+                const shortcut_label: *gtk.Label = .new(shortcut.ptr);
+                shortcut_label.setXalign(1);
+                shortcut_label.as(gtk.Widget).addCssClass("dim-label");
+                box.append(shortcut_label.as(gtk.Widget));
+            }
+
+            row.setChild(box.as(gtk.Widget));
             if (i == priv.active_workspace_index) row.as(gtk.Widget).addCssClass("accent");
             priv.workspace_list.append(row.as(gtk.Widget));
         }
+    }
+
+    fn syncWorkspaceSidebarActive(self: *Self) void {
+        const priv = self.private();
+        var child = priv.workspace_list.as(gtk.Widget).getFirstChild();
+        var i: usize = 0;
+        while (child) |row_widget| : ({
+            child = row_widget.getNextSibling();
+            i += 1;
+        }) {
+            if (i == priv.active_workspace_index) {
+                row_widget.addCssClass("accent");
+            } else {
+                row_widget.removeCssClass("accent");
+            }
+        }
+    }
+
+    fn workspaceSidebarShortcut(
+        buf: *[2:0]u8,
+        index: usize,
+        total: usize,
+    ) ?[:0]const u8 {
+        const position = index + 1;
+        if (position <= 9) return std.fmt.bufPrintZ(buf, "{d}", .{position}) catch null;
+        if (position == total) return "0";
+        return null;
     }
 
     fn workspaceTitleExists(
@@ -1439,6 +1542,14 @@ pub const Window = extern struct {
             }
             priv.handle_active_state_source = null;
         }
+
+        if (priv.active_workspace_switch_source) |v| {
+            if (glib.Source.remove(v) == 0) {
+                log.warn("unable to remove active workspace switch source", .{});
+            }
+            priv.active_workspace_switch_source = null;
+        }
+        priv.pending_active_workspace_index = null;
 
         priv.command_palette.set(null);
 
@@ -1834,18 +1945,17 @@ pub const Window = extern struct {
         // close behavior.
         if (priv.tab_overview.getOpen() != 0) return;
 
+        if (priv.workspaces.items.len == 1) {
+            self.as(gtk.Window).close();
+            return;
+        }
+
         self.disconnectWorkspace(workspace);
         _ = priv.workspaces.orderedRemove(remove_index);
         workspace.unref();
 
-        if (priv.workspaces.items.len == 0) {
-            const new_workspace = self.newWorkspaceEmpty();
-            _ = new_workspace.newTabPage(null, .tab, .none);
-            self.setActiveWorkspace(new_workspace);
-            return;
-        }
-
         const next_index = @min(remove_index, priv.workspaces.items.len - 1);
+        self.syncWorkspaceSidebar();
         self.setActiveWorkspaceIndex(next_index);
     }
 
@@ -2414,3 +2524,14 @@ pub const Window = extern struct {
         pub const bindTemplateCallback = C.Class.bindTemplateCallback;
     };
 };
+
+test "workspace generated title starts at one" {
+    var buf: [64:0]u8 = undefined;
+    try std.testing.expectEqualStrings("Workspace 1", formatWorkspaceName(&buf, 1));
+}
+
+test "workspace generated titles use stable counter values" {
+    var buf: [64:0]u8 = undefined;
+    try std.testing.expectEqualStrings("Workspace 2", formatWorkspaceName(&buf, 2));
+    try std.testing.expectEqualStrings("Workspace 10", formatWorkspaceName(&buf, 10));
+}
