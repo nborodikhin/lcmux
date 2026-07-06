@@ -61,6 +61,9 @@ pub const Workspace = extern struct {
         /// The tab view owned by this workspace.
         tab_view: *adw.TabView,
 
+        /// The tab bar permanently bound to this workspace's tab view.
+        tab_bar: *adw.TabBar,
+
         /// The generated title assigned when this workspace is created.
         default_title: ?[:0]const u8 = null,
 
@@ -86,6 +89,10 @@ pub const Workspace = extern struct {
         const tab_view: *adw.TabView = .new();
         priv.tab_view = tab_view;
 
+        const tab_bar: *adw.TabBar = .new();
+        tab_bar.setView(tab_view);
+        priv.tab_bar = tab_bar;
+
         tab_view.setShortcuts(.{});
 
         _ = gobject.Object.signals.notify.connect(
@@ -96,6 +103,7 @@ pub const Workspace = extern struct {
             .{ .detail = "n-pages" },
         );
 
+        self.as(gtk.Box).append(tab_bar.as(gtk.Widget));
         self.as(gtk.Box).append(tab_view.as(gtk.Widget));
     }
 
@@ -295,6 +303,32 @@ pub const Workspace = extern struct {
         return self.private().tab_view;
     }
 
+    /// Sync visible settings for the workspace-owned tab bar.
+    pub fn syncTabBar(
+        self: *Self,
+        visible: bool,
+        autohide: bool,
+        wide: bool,
+        location: anytype,
+    ) void {
+        const priv = self.private();
+        const tab_bar = priv.tab_bar;
+        tab_bar.as(gtk.Widget).setVisible(@intFromBool(visible));
+        tab_bar.setAutohide(@intFromBool(autohide));
+        tab_bar.setExpandTabs(@intFromBool(wide));
+
+        switch (location) {
+            .top => self.as(gtk.Box).reorderChildAfter(
+                tab_bar.as(gtk.Widget),
+                null,
+            ),
+            .bottom => self.as(gtk.Box).reorderChildAfter(
+                tab_bar.as(gtk.Widget),
+                priv.tab_view.as(gtk.Widget),
+            ),
+        }
+    }
+
     /// Get the generated title assigned when this workspace was created.
     pub fn getDefaultTitle(self: *Self) [:0]const u8 {
         return self.private().default_title orelse "Workspace";
@@ -374,6 +408,8 @@ pub const Workspace = extern struct {
             null,
             self,
         );
+        priv.tab_bar.setView(null);
+        self.as(gtk.Box).remove(priv.tab_bar.as(gtk.Widget));
         self.as(gtk.Box).remove(priv.tab_view.as(gtk.Widget));
 
         if (priv.config) |v| {

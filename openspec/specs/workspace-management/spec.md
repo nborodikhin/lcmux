@@ -19,7 +19,7 @@ The system SHALL provide a `new_workspace` action, bound by default to Ctrl+Shif
 - **THEN** a new workspace is created containing one new tab, the new workspace becomes the active workspace, and the new tab is focused
 
 ### Requirement: Destroy workspace when empty
-A workspace SHALL be automatically destroyed the moment its last tab is closed.
+A workspace SHALL be automatically destroyed the moment its last tab is closed when at least one other workspace remains. If other workspaces remain, the active workspace SHALL move to an adjacent workspace. If no other workspaces remain, the window/application SHALL continue through the normal tab/window close lifecycle without creating a replacement workspace.
 
 #### Scenario: Closing the only tab in a workspace
 - **WHEN** the user closes the last remaining tab in a workspace
@@ -33,12 +33,13 @@ A workspace SHALL be automatically destroyed the moment its last tab is closed.
 - **WHEN** the active workspace is destroyed because its last tab closed, and at least one other workspace remains
 - **THEN** the window's active workspace becomes the workspace that was adjacent to the destroyed one (preferring the next workspace, falling back to the previous one if the destroyed workspace was last)
 
-### Requirement: Zero-workspace guarantee
-The application SHALL never reach a state with zero workspaces in a window. If destroying a workspace (per the "Destroy workspace when empty" requirement) would leave the window with no workspaces, a fresh workspace containing one new tab SHALL be created automatically and made active.
+#### Scenario: Destroying the final workspace does not recreate it
+- **WHEN** the active workspace is destroyed because its last tab closed, and no other workspace remains
+- **THEN** no replacement workspace or tab is created automatically
 
-#### Scenario: Closing the last tab of the last workspace
-- **WHEN** the user closes the last tab in the only remaining workspace in a window
-- **THEN** that workspace is destroyed, and a new workspace containing one new tab is immediately created and made active
+#### Scenario: Final workspace close uses window lifecycle
+- **WHEN** the last tab in the only remaining workspace is closed
+- **THEN** the system requests normal window close without first leaving a live window with zero workspaces
 
 ### Requirement: Reorder the active workspace
 The system SHALL provide a bindable `move_workspace` action taking a signed relative offset. Invoking `move_workspace:<offset>` SHALL move the active workspace by that offset within the current window's ordered workspace list. Movement SHALL wrap cyclically when the destination is before the first workspace or after the last workspace, and the moved workspace SHALL remain active after the reorder.

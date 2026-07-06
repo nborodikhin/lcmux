@@ -1,19 +1,4 @@
-## Purpose
-
-Define the visible workspace sidebar, including visibility, ordering, active indication, and click behavior.
-
-## Requirements
-
-### Requirement: Toggle sidebar visibility
-The system SHALL provide a `toggle_workspace_sidebar` action, bound by default to Ctrl+Shift+B, that shows the workspace sidebar if it is hidden and hides it if it is shown. Hiding the sidebar SHALL NOT affect workspace or tab state.
-
-#### Scenario: Hiding the sidebar
-- **WHEN** the sidebar is visible and the user invokes `toggle_workspace_sidebar`
-- **THEN** the sidebar is hidden and the terminal content area expands to use the freed space
-
-#### Scenario: Showing the sidebar
-- **WHEN** the sidebar is hidden and the user invokes `toggle_workspace_sidebar`
-- **THEN** the sidebar becomes visible again, listing the same workspaces in the same order as before it was hidden
+## MODIFIED Requirements
 
 ### Requirement: Sidebar lists workspaces in order
 The sidebar SHALL display all open workspaces in a window as a vertical list, ordered by workspace position (the same order used by positional navigation, i.e. `goto_workspace`). Each sidebar entry SHALL display the workspace's current title, using a custom workspace title when one is set and the workspace's stable generated default title when one is not set. Each sidebar entry SHALL also display a shortcut hint at the end of the row when a numeric workspace shortcut can target that workspace.
@@ -42,16 +27,16 @@ The sidebar SHALL display all open workspaces in a window as a vertical list, or
 - **WHEN** the last workspace does not already display a direct position hint
 - **THEN** its sidebar entry displays `0` as a right-aligned shortcut hint
 
-### Requirement: Sidebar sizes to workspace titles
-The sidebar SHALL be at least 60px wide and SHALL expand when necessary to fit the displayed workspace title plus symmetric left and right horizontal padding.
+### Requirement: Sidebar shortcut hints use subdued styling
+Sidebar shortcut hints SHALL be visually distinct from workspace titles by using a slightly darker or otherwise subdued text style comparable to menu accelerator text.
 
-#### Scenario: Sidebar uses minimum width for short names
-- **WHEN** every displayed workspace title fits within 60px including horizontal padding
-- **THEN** the sidebar width is 60px
+#### Scenario: Shortcut hint is visually secondary
+- **WHEN** the sidebar displays a workspace row with a shortcut hint
+- **THEN** the shortcut hint appears less prominent than the workspace title
 
-#### Scenario: Sidebar expands for longer names
-- **WHEN** a displayed workspace title requires more than 60px including horizontal padding
-- **THEN** the sidebar expands to fit the title and keeps matching left and right horizontal padding around the title
+#### Scenario: Shortcut hint is aligned at row end
+- **WHEN** the sidebar displays a workspace row with a shortcut hint
+- **THEN** the shortcut hint appears at the end of the row opposite the workspace title
 
 ### Requirement: Sidebar indicates the active workspace
 The sidebar SHALL visually distinguish whichever workspace is currently active in the window, and SHALL update this indication whenever the active workspace changes (via navigation shortcuts, sidebar clicks, or workspace creation/destruction). Rapid workspace switching SHALL NOT crash or repeatedly force libadwaita tab-view replacement while prior switch events are still being processed. Each workspace SHALL own a stable libadwaita tab bar bound to that workspace's tab view, rather than rebinding a single shared tab bar across workspace tab views.
@@ -67,21 +52,3 @@ The sidebar SHALL visually distinguish whichever workspace is currently active i
 #### Scenario: Adding tabs after switching remains stable
 - **WHEN** the user switches between workspaces and then adds tabs to the active workspace
 - **THEN** the tabs appear in that workspace's tab bar without crashing the application
-
-### Requirement: Sidebar shortcut hints use subdued styling
-Sidebar shortcut hints SHALL be visually distinct from workspace titles by using a slightly darker or otherwise subdued text style comparable to menu accelerator text.
-
-#### Scenario: Shortcut hint is visually secondary
-- **WHEN** the sidebar displays a workspace row with a shortcut hint
-- **THEN** the shortcut hint appears less prominent than the workspace title
-
-#### Scenario: Shortcut hint is aligned at row end
-- **WHEN** the sidebar displays a workspace row with a shortcut hint
-- **THEN** the shortcut hint appears at the end of the row opposite the workspace title
-
-### Requirement: Sidebar entries are clickable
-Clicking a workspace's entry in the sidebar SHALL make that workspace the active workspace, equivalent to navigating to it via `goto_workspace`.
-
-#### Scenario: Clicking a sidebar entry switches workspaces
-- **WHEN** the user clicks a workspace entry in the sidebar that is not currently active
-- **THEN** that workspace becomes active and its previously-focused tab is focused
