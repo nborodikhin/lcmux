@@ -14,5 +14,5 @@
 
 - [x] 3.1 Add or update targeted tests where practical for dynamic title formatting and static-title literal behavior.
 - [x] 3.2 Run targeted Zig tests for GTK workspace/window title behavior, or the closest available test filter.
-- [ ] 3.3 Manually verify a workspace named `Job` with active tab title `htop` shows `Job - htop` in the GTK window title.
+- [x] 3.3 Manually verify a workspace named `Job` with active tab title `htop` shows `Job - htop` in the GTK window title.
 - [x] 3.4 Manually verify no color, markup, or partial styling is introduced into the OS-visible window title.
