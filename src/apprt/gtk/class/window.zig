@@ -42,6 +42,19 @@ fn formatWorkspaceName(buf: *[64:0]u8, counter: usize) [:0]const u8 {
     ) catch "Workspace";
 }
 
+fn formatWorkspaceWindowTitle(
+    alloc: std.mem.Allocator,
+    workspace_title: []const u8,
+    tab_title: []const u8,
+) ![:0]u8 {
+    return std.fmt.allocPrintSentinel(
+        alloc,
+        "{s} - {s}",
+        .{ workspace_title, tab_title },
+        0,
+    );
+}
+
 pub const Window = extern struct {
     const Self = @This();
     parent_instance: Parent,
@@ -238,9 +251,6 @@ pub const Window = extern struct {
         /// config on a per-window basis.
         window_decoration: ?configpkg.WindowDecoration = null,
 
-        /// Binding group for our active tab.
-        tab_bindings: *gobject.BindingGroup,
-
         /// The configuration that this surface is using.
         config: ?*Config = null,
 
@@ -347,11 +357,6 @@ pub const Window = extern struct {
         // AdwTabBar across multiple AdwTabViews.
         priv.tab_bar.setView(null);
         priv.tab_bar.as(gtk.Widget).setVisible(0);
-
-        // Setup our tab binding group. This ensures certain properties
-        // are only synced from the currently active tab.
-        priv.tab_bindings = gobject.BindingGroup.new();
-        priv.tab_bindings.bind("title", self.as(gobject.Object), "title", .{});
 
         // Set our window icon. We can't set this in the blueprint file
         // because its dependent on the build config.
@@ -1077,6 +1082,7 @@ pub const Window = extern struct {
         }
 
         self.syncWorkspaceSidebarActive();
+        self.syncWindowTitle();
     }
 
     fn activeWorkspaceSwitch(ud: ?*anyopaque) callconv(.c) c_int {
@@ -1146,6 +1152,29 @@ pub const Window = extern struct {
         }
     }
 
+    fn syncWindowTitle(self: *Self) void {
+        const priv = self.private();
+        if (priv.config) |config_obj| {
+            if (config_obj.get().title) |title| {
+                self.as(gtk.Window).setTitle(title);
+                return;
+            }
+        }
+
+        const workspace = self.activeWorkspace() orelse return;
+        const tab = workspace.getSelectedTab() orelse return;
+        const tab_title = tab.getTitle() orelse "Ghostty";
+
+        const alloc = Application.default().allocator();
+        const title = formatWorkspaceWindowTitle(alloc, workspace.getTitle(), tab_title) catch |err| {
+            log.warn("failed to allocate workspace window title err={}", .{err});
+            return;
+        };
+        defer alloc.free(title);
+
+        self.as(gtk.Window).setTitle(title);
+    }
+
     fn workspaceSidebarShortcut(
         buf: *[2:0]u8,
         index: usize,
@@ -1171,23 +1200,16 @@ pub const Window = extern struct {
     }
 
     fn syncSelectedTabBinding(self: *Self, tab_view: *adw.TabView) void {
-        const priv = self.private();
-
-        // Always reset our binding source in case we have no pages.
-        priv.tab_bindings.setSource(null);
-
         // Get our current page which MUST be a Tab object.
         const page = tab_view.getSelectedPage() orelse return;
         const child = page.getChild();
         assert(gobject.ext.isA(child, Tab));
 
-        // Setup our binding group. This ensures things like the title
-        // are synced from the active tab.
-        priv.tab_bindings.setSource(child.as(gobject.Object));
-
         // If the tab was previously marked as needing attention
         // (e.g. due to a bell character), we now unmark that.
         page.setNeedsAttention(@intFromBool(false));
+
+        self.syncWindowTitle();
     }
 
     fn workspaceForSurface(self: *Self, surface: *Surface) ?*Workspace {
@@ -1383,6 +1405,7 @@ pub const Window = extern struct {
         }
 
         self.syncAppearance();
+        self.syncWindowTitle();
     }
 
     fn propIsActive(
@@ -1564,8 +1587,6 @@ pub const Window = extern struct {
             priv.config = null;
         }
 
-        priv.tab_bindings.setSource(null);
-
         gtk.Widget.disposeTemplate(
             self.as(gtk.Widget),
             getGObjectType(),
@@ -1579,7 +1600,6 @@ pub const Window = extern struct {
 
     fn finalize(self: *Self) callconv(.c) void {
         const priv = self.private();
-        priv.tab_bindings.unref();
         priv.winproto.deinit();
 
         gobject.Object.virtual_methods.finalize.call(
@@ -1823,6 +1843,13 @@ pub const Window = extern struct {
             self,
             .{},
         );
+        _ = gobject.Object.signals.notify.connect(
+            tab,
+            *Self,
+            tabTitleChanged,
+            self,
+            .{ .detail = "title" },
+        );
 
         const split_tree = tab.getSplitTree();
         _ = SplitTree.signals.changed.connect(
@@ -1923,6 +1950,14 @@ pub const Window = extern struct {
         tab_view.closePage(page);
     }
 
+    fn tabTitleChanged(
+        _: *Tab,
+        _: *gobject.ParamSpec,
+        self: *Self,
+    ) callconv(.c) void {
+        self.syncWindowTitle();
+    }
+
     fn tabViewNPages(
         _: *adw.TabView,
         _: *gobject.ParamSpec,
@@ -1964,6 +1999,7 @@ pub const Window = extern struct {
         self: *Self,
     ) callconv(.c) void {
         self.syncWorkspaceSidebar();
+        self.syncWindowTitle();
     }
 
     fn titleDialogWorkspaceSet(
@@ -2534,4 +2570,11 @@ test "workspace generated titles use stable counter values" {
     var buf: [64:0]u8 = undefined;
     try std.testing.expectEqualStrings("Workspace 2", formatWorkspaceName(&buf, 2));
     try std.testing.expectEqualStrings("Workspace 10", formatWorkspaceName(&buf, 10));
+}
+
+test "workspace window title includes active workspace" {
+    const title = try formatWorkspaceWindowTitle(std.testing.allocator, "Job", "htop");
+    defer std.testing.allocator.free(title);
+
+    try std.testing.expectEqualStrings("Job - htop", title);
 }

@@ -288,6 +288,11 @@ pub const Tab = extern struct {
         return self.getSplitTree().getActiveSurface();
     }
 
+    /// Get the computed tab title, if any.
+    pub fn getTitle(self: *Self) ?[:0]const u8 {
+        return self.private().title;
+    }
+
     /// Get the surface tree of this tab.
     pub fn getSurfaceTree(self: *Self) ?*Surface.Tree {
         const priv = self.private();
